@@ -1,0 +1,110 @@
+---
+- name: Convert to RHEL
+  hosts: all
+  become: true
+  remote_user: root
+
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Check and stop Puppet, Salt, or Chef
+      block:
+
+        - name: Check if Puppet is installed
+          command: "which puppet"
+          register: puppet_installed
+          ignore_errors: true
+
+        - name: Stop and disable Puppet service
+          systemd:
+            name: puppet
+            state: stopped
+            enabled: no
+          when: puppet_installed.rc == 0
+
+        - name: Check if Salt is installed
+          command: "which salt-minion"
+          register: salt_installed
+          ignore_errors: true
+
+        - name: Stop and disable Salt service
+          systemd:
+            name: salt-minion
+            state: stopped
+            enabled: no
+          when: salt_installed.rc == 0
+
+        - name: Check if Chef is installed
+          command: "which chef-client"
+          register: chef_installed
+          ignore_errors: true
+
+        - name: Stop and disable Chef service
+          systemd:
+            name: chef-client
+            state: stopped
+            enabled: no
+          when: chef_installed.rc == 0
+
+    - name: Set YUM Proxy
+      block:
+        - name: Set YUM proxy in yum.conf
+          lineinfile:
+            path: /etc/yum.conf
+            line: "proxy={{ yum_proxy }}"
+          when: yum_proxy != "none"
+
+    - name: Set HTTP and HTTPS Proxy Environment Variables
+      block:
+        - name: Set http_proxy and https_proxy
+          ansible.builtin.set_fact:
+            environment_variables:
+              http_proxy: "{{ proxy }}"
+              https_proxy: "{{ proxy }}"
+          when: proxy != "none"
+
+    - name: Update the system
+      yum:
+        name: '*'
+        state: latest
+      register: update_result
+
+    - name: Conditional reboot if updates were applied
+      ansible.builtin.reboot:
+      when: update_result.changed
+
+    - name: Secure the packages
+      block:
+        - name: Download RPM-GPG-KEY-redhat-release
+          get_url:
+            url: https://www.redhat.com/security/data/fd431d51.txt
+            dest: /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+        - name: create dir for cert
+          file:
+            path: /etc/rhsm/ca/
+            state: directory
+            mode: '0755'
+
+        - name: Download redhat-uep.pem
+          get_url:
+            url: https://ftp.redhat.com/redhat/convert2rhel/redhat-uep.pem
+            dest: /etc/rhsm/ca/redhat-uep.pem
+            mode: 0644
+
+    - name: Download the repository definition
+      get_url:
+        url: https://ftp.redhat.com/redhat/convert2rhel/7/convert2rhel.repo
+        dest: /etc/yum.repos.d/convert2rhel.repo
+
+    - name: Install convert2rhel
+      yum:
+        name: convert2rhel
+        state: present
+
+    - name: Convert to RHEL
+      command: "convert2rhel --org {{ org_id }} --activationkey {{ activation_key }} -y"
+
+    - name: Reboot into RHEL kernel
+      ansible.builtin.reboot:
+      when: "'Conversion successful!' in convert2rhel.stdout"

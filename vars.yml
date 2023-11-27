@@ -1,0 +1,5 @@
+# vars.yml
+proxy: none
+yum_proxy: none
+org_id: 123456789
+activation_key: convert2rhel
