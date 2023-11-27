@@ -104,6 +104,7 @@
 
     - name: Convert to RHEL
       command: "convert2rhel --org {{ org_id }} --activationkey {{ activation_key }} -y"
+      register: convert2rhel
 
     - name: Reboot into RHEL kernel
       ansible.builtin.reboot:
